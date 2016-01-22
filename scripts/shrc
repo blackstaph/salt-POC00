@@ -1,0 +1,418 @@
+#Title: N/A
+#Author:    G. Clifford Williams
+#Purpose:   used as a .shrc or .profile this script initializes interactive
+#           shell sessions with the specified configuration determined by
+#           Operating System and/or shell implementation. In particular this
+#           script is for shells that implement the POSIX
+#           This Part
+
+
+#-----------------------------------------------------------------------------#
+#------------------------------------INIT-------------------------------------#
+#-----------------------------------------------------------------------------#
+    #This section checks to see whether the file has been read already. If so
+    #it exits (using the return command) with a nice message. It works by 
+    #setting a variable named for the pid of the current shell ($$). If the 
+    #variable is not empty the file has been processed before. This makes it 
+    # more suitable to use one file for both the .profile and .shrc
+[ "$(eval "echo \${my_${$}}")" = "processed" ] && \
+        { #echo "already read for my_${$}"
+            return 1;}
+
+eval "my_${$}=processed" #set marker to indicate we've processed this file
+
+#-----------------------------------------------------------------------------#
+#-------------------------------RUN MODE CHECK--------------------------------#
+#-----------------------------------------------------------------------------#
+case "$-" in 
+    #This section checks for the 'interactive mode' flag in the '$-' variable
+    #By checking the my_INTERACTIVE variable you can set chunks of code to 
+    #be conditional on the manner in which the shell was invoked
+    *i* ) 
+            my_INTERACTIVE="yes"
+            ;;
+    * ) 
+            my_INTERACTIVE="no"
+            ;;
+esac
+
+
+#-----------------------------------------------------------------------------#
+#------------------------------------FUNCTIONS--------------------------------#
+#-----------------------------------------------------------------------------#
+my_lecho(){
+    [ -n my_SILENT ] || echo "$(date +%H:%M:%S)|$@"
+}
+
+my_pathmatch_cleanup(){
+    #clean up some sloppy global variables. I should really clean these up
+    unset mPMatchDel
+    unset mPMatchVar
+    unset mPMatchString
+    #zsh specific clean up
+    [ "${reset_wordsplit:=no}" = "yes" ] && setopt noshwordsplit
+}
+
+my_pathmatch(){
+    mPMatchVar=${1}        #Variable to check
+    mPMatchString=${2:?}   #string to look for
+    mPMatchDel=${3:-":"}   #optional delimiter (use ';' for LUA*)
+
+    case ${mPMatchVar} in 
+        ${mPMatchString}|\
+        ${mPMatchString}${mPMatchDel}*|\
+        *${mPMatchDel}${mPMatchString}${mPMatchDel}*|\
+        *${mPMatchDel}${mPMatchString})
+            echo "rejecting (${mPMatchString}) because it's in there already"
+            { my_pathmatch_cleanup; return 0 ;} 
+            ;;
+    esac
+    my_pathmatch_cleanup #clean up
+    return 1 #return 1 if we've gotten this far (indicates no match above)
+}
+
+my_pathadd(){
+    #This is a function to add path elements to a path variable. $1 is the 
+    #name of the variable to append to (note: use PATHNAME, not $PATHNAME)
+    my_PATHVAR=$1   #take the first parameter as PATHVAR
+    shift           #remove $1 and shift the other params down
+    case $my_PATHVAR in
+        LUA*)
+            #If we're modifying a Lua Path we set the separator to ';' instead
+            #of the standard ':'
+            my_OFS=";"
+            ;;
+        *)
+            my_OFS=":"
+            ;;
+    esac
+
+    [ -n "${1:?"USAGE: my_pathadd <VARIABLE> <PTH1> [<PTH2>] ..."}" ]
+    while [ ${#} -gt 0 ] ; do 
+    #for PATH_add in ${@:?"USAGE: my_pathadd <VARIABLE> <PTH1> [<PTH2>]..."};do 
+        PATH_add=${1}
+        if [ -d "${PATH_add}" ] ; then #if the path is an existing dir
+            if eval "[ -n \"\${$my_PATHVAR}\" ]" ; then #if the variable exists
+                #call my_pathmatch <VARIABLE> <PATH> <FS>. If we get 0 as a 
+                #return code (success) we know the PATH is already in 
+                #<VARIABLE>. If we get anything else we add PATH to <VARIABLE>
+                eval "my_pathmatch \"\${$my_PATHVAR}\" \"${PATH_add}\" \\${my_OFS}" ||\
+                eval "$my_PATHVAR=\"\${$my_PATHVAR}${my_OFS}${PATH_add}\""
+            else
+                #If PATHVAR doesn't already exist we initialize it to the first
+                #PATH parameter passed ($2)
+                eval "$my_PATHVAR=\"$PATH_add\""
+            fi
+        fi
+        shift
+    done
+    eval "export $my_PATHVAR"
+    unset my_PATHVAR
+    unset PATH_add
+}
+
+my_cleanpath(){
+    #function to set a very basic PATH
+    PATH=/bin:/usr/bin:/sbin:/usr/sbin
+}
+
+my_reload(){
+    #Quick function to unset my_<PID>; and reload ENV file. This is the way
+    #to refresh your environment since, by default, just sourcing it after
+    #initialization will not work.
+    unset my_${$}
+    #[ -n ${BASH_ENV} ] && . ${BASH_ENV:"$ENV"} || . ${ENV}
+    my_loadfile=${BASH_ENV:-"${ENV}"}
+    [ -n "${my_loadfile}" ] && . "${my_loadfile}"
+}
+
+my_getshell(){
+    #Biased test to figure out what shell we're running. We check for KSH first
+    #Some shells that are not true KSH (PDKSH|OKSH|MKSH) may lie here. If this
+    #test does not work for your needs please modify it. It would be nice if
+    #you sent your modification along so for the benefit of others.
+    if [ "${KSH_VERSION}X" != "X" ] ; then
+        echo "KSH_VERSION:${KSH_VERSION}"
+    elif [ "${ZSH_VERSION}X" != "X" ] ; then
+        echo "ZSH_VERSION:${ZSH_VERSION}"
+    elif [ "${BASH_VERSION}X" != "X" ] ; then
+        echo "BASH_VERSION:${BASH_VERSION}"
+    elif ([ "${.sh.version}X" = "Version M 1993-12-28 s+X" ]) 2>/dev/null; then 
+        #The above is a test for the specific version of KSH that comes with
+        #OS X. Standard versions of KSH can be detected with the $KSH_VERSION}
+        #check at the top of this function. You will need to update the string
+        #if Apple ever gets around to upgrading their included KSH. 
+        #Note 1: The surrounding ()s are used to catch errors from shells that 
+        #complain about 'bad substitution'. 
+        #Note 2: This test is expensive so we only execute it if all else fails
+        echo "KSH_VERSION:${.sh.version}"
+    else
+        echo "UNKNOWN"
+    fi
+}
+
+#-----------------------------------------------------------------------------#
+#-------------------Universal/Generic Settings--------------------------------#
+#-----------------------------------------------------------------------------#
+
+#------Get our SHELL-----#
+[ -n "${my_SHELL}" ] || my_SHELL=$(my_getshell) 
+
+#-----Get our OS-----#
+my_OS=$(uname) 
+
+#----Get our username----#
+my_USERNAME=$(id -un 2> /dev/null || id -u)
+
+#------Set EDITOR(s)-----#
+if { which vim 2> /dev/null  1> /dev/null ;}; then
+    EDITOR=vim 
+else
+    EDITOR=vi
+fi
+FCEDIT=$EDITOR
+VISUAL=$EDITOR
+HISTEDIT=$EDITOR
+TERM="xterm-256color"
+export EDITOR
+export FCEDIT
+export HISTEDIT
+export TERM
+export VISUAL
+#------Set PAGER-----#
+if { which less 2> /dev/null 1> /dev/null;}; then
+    PAGER=less
+else
+    PAGER=more
+fi
+export PAGER
+
+#------Useful bits of info-----#
+my_FULLHOSTNAME=$(hostname)
+my_HOST=${my_FULLHOSTNAME%%.*}
+my_DOMAIN=${my_FULLHOSTNAME#*.}
+my_NEWLINE="
+"
+#The above two lines are a cheap hack to set a litteral new line character
+#echo and print can't be used in a reliable fashion to do this across 
+#environments. The above does not work with all shells, but it should not
+#cause any problems. If you have a better (POSIX compliant) idea on how to
+#do this, please let me know.
+
+
+case ${my_OS:-unset} in
+    Darwin )
+        #-------OS X Specifics-------#
+        unset PATH
+        unset MANPATH
+	    #added for HomeBrew (first priority)
+        my_pathadd PATH /usr/local/bin /usr/local/sbin
+        my_pathadd MANPATH /usr/local/man
+        
+        #added for macports (third priority)
+        my_pathadd PATH /opt/local/bin /opt/local/sbin
+        my_pathadd MANPATH /opt/local/man
+
+        #regular PATH(s)
+        my_pathadd PATH /usr/bin /bin /usr/sbin /sbin /usr/local/bin
+        my_pathadd PATH /usr/local/sbin /usr/X11/bin 
+        my_pathadd MANPATH /usr/man /usr/X11/man /usr/X11/share/man
+
+        #added for pkgsrc   (second priority)
+        my_pathadd PATH /usr/pkg/bin /usr/pkg/sbin /usr/local/pkg/bin /usr/local/pkg/sbin
+        my_pathadd MANPATH /usr/pkg/man /usr/local/pkg/man
+
+        #VMware Fusion CLI
+        my_pathadd PATH /Applications/VMware Fusion.app/Contents/Library
+        
+        #added for node.js  (homebrew install) 
+        my_pathadd NODE_PATH /usr/local/lib/node_modules
+
+        #added for Titanium 
+        my_pathadd PATH /usr/local/share/npm/bin
+
+        #System Man Path(s)
+        my_pathadd MANPATH /usr/share/man
+
+        LC_CTYPE=en_US.UTF-8
+        export LC_CTYPE
+        OFFLINE=1
+        export OFFLINE
+
+        unset ti_path
+        #Titanium CLI support on OS X
+        for try_path in  \
+            "${HOME}/Library/Application Support/Titanium/mobilesdk/osx" \
+            "/Library/Application Support/Titanium/mobilesdk/osx" ; do 
+            if [ ${#ti_path} -eq 0 ] ; then
+                my_pathadd ti_path "${try_path}"
+            fi
+            unset try_path
+        done
+        if [ -n "${ti_path}" ] ; then 
+            alias titanium="echo 'not yet poppin'"
+            unset ti_version
+            unalias titanium
+            ti_left="${ti_path%% *}"
+            ti_right="${ti_path##* }"
+            ti_version=$(ls -t "${ti_path}"|head -1)
+            alias titanium="$(echo ${ti_path}/${ti_version}/titanium.py |\
+                                sed 's/ /\\ /g')"
+            unset ti_left
+            unset ti_right
+        fi 
+        #DISPLAY=:0.0 
+        #export DISPLAY
+        ;;
+    FreeBSD )
+        #-------FreeBSD Specifics-------#
+        BLOCKSIZE=K
+        export BLOCKSIZE
+        my_cleanpath
+        my_pathadd PATH /usr/local/bin /usr/local/sbin
+        ;;
+    Linux )
+        #-------Linux Specifics-------#
+        my_cleanpath
+        my_pathadd PATH /usr/local/bin /usr/local/sbin
+        #get rid of that annoying and stupid 'colorls' crap
+        alias ls='/bin/ls' #set it just in case it's not yet set
+        unalias ls #unset it now
+        #alias titanium=$HOME/.titanium/mobilesdk/linux/${ti_version}>/titanium.py
+        ;;
+    CYGWIN_NT* )
+        #-------CygWin Specifics-------#
+        CYGWIN=tty 
+        export CYGWIN
+        zstyle :compinstall filename '/cygdrive/c/.zshrc'
+        ;;
+esac
+
+#----------ALL SHELLS SETTINGS-----------#
+HISTSIZE=2500
+
+case ${my_SHELL:-unset} in 
+    ZSH* ) 
+        #--------Z SHELL--------#
+        my_lecho "initializing ZSH"
+        # Lines configured by zsh-newuser-install
+        HISTFILE=~/.zsh_history
+        SAVEHIST=1000000
+        #don't overwrite history file
+        setopt appendhistory 
+        #get rid of dupes in the history file
+        setopt hist_save_no_dups
+        #try good file locking for history file
+        setopt hist_fcntl_lock
+        #don't show dupes in history search
+        setopt hist_find_no_dups
+        #don't store the history/fc command in the history file
+        setopt hist_no_store
+        #write to the history file incrementally
+        setopt share_history
+        #allow short forms of various control structures
+        setopt short_loops
+        #list options on ambiguous completion
+        setopt autolist
+        bindkey -v
+        autoload -Uz compinit
+        compinit
+        # End of lines added by compinstall
+        PS1="[%n@%m:%/>${my_NEWLINE}%# "
+        ENV="${HOME}/.zshrc"
+        export ENV
+        SHELL=$(which zsh) #Needed for screen on GNU systems (bleh)
+        export SHELL
+        [[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
+        [[ -s "$HOME/.pythonbrew/etc/bashrc" ]] && source "$HOME/.pythonbrew/etc/bashrc"
+        if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
+        ;;
+    BASH* ) 
+        #--------Bourne Again SHELL--------#
+        my_lecho "initializing BASH"
+        set -o vi #vi mode editing
+        set -b #immediate background job reporting
+        set -B #brace expansion
+        BASH_ENV="${HOME}/.bashrc"
+        export BASH_ENV
+        #source the BASH_ENV if it's readable
+        [ -r "${BASH_ENV}" ] && . "${BASH_ENV}"
+        HISTFILE="${HOME}/.bash_history"
+        HISTFILESIZE=100000
+        #Don't put Dupes in history file 
+        export HISTCONTROL=ignoredups
+        #Append to history file (don't overwrite)
+        shopt -s histappend
+        #update LINES & COLS when window size changes
+        shopt -s checkwinsize
+        #look for bash completion files
+        [ -f /etc/bash_completion ] && . /etc/bash_completion 
+        [ -f /usr/local/etc/bash_completion ] &&\
+            . /usr/local/etc/bash_completion
+        [ -f /opt/local/etc/bash_completion ] &&\
+            . /opt/local/etc/bash_completion
+        PS1="[\u@\h:\w>\n\$ "
+        #[[ -s "/Users/gcw/.rvm/scripts/rvm" ]] && . "/Users/gcw/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
+        [[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
+        [[ -s "$HOME/.pythonbrew/etc/bashrc" ]] && source "$HOME/.pythonbrew/etc/bashrc"
+        #if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
+        ;;
+    *MIRBSD\ KSH*)
+        set -o vi #vi mode
+        set -o vi-tabcomplete #tab completion 
+        ENV="${HOME}/.mkshrc"
+        HISTFILE="${HOME}/.mksh_history"
+        HISTFILESIZE=100000
+        PS1='$(whoami)@$(hostname -s):$(pwd)> '
+        case $(id -u) in
+            0 ) PS1="${PS1}${my_NEWLINE}:# ";;
+            * ) PS1="${PS1}${my_NEWLINE}:$ ";;
+        esac
+        if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
+        ;;
+    KSH* ) 
+        #--------Korn SHELL--------#
+        my_lecho "initializing KSH (or something pretending to be it)"
+        set -o vi #vi mode 
+        set -o viraw #for real KSH
+        set -o bgnice #nice background processes
+        set -b #immediate background job reporting
+        ENV="${HOME}/.kshrc"
+        export ENV
+        HISTFILE="${HOME}/.ksh_history"
+        HISTFILESIZE=100000
+        PS1='$(whoami)@$(hostname -s):$(pwd)> '
+        case $(id -u) in
+            0 ) PS1="${PS1}${my_NEWLINE}# ";;
+            * ) PS1="${PS1}${my_NEWLINE}$ ";;
+        esac
+        if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
+        ;;
+    * )
+        #--------GENERIC SHELL--------#
+        my_lecho "initializing unknown shell"
+        set -o vi
+        HISTFILE="${HOME}/.sh_history"
+        HISTFILESIZE=100000
+        ENV="${HOME}/.shrc"
+        export ENV
+        #PS1='$(whoami)@$(hostname -s):$(pwd)>'
+        PS1="$my_USERNAME@$my_HOST: "
+        case $(id -u) in
+            0 ) PS1="${PS1}${my_NEWLINE}# ";;
+            * ) PS1="${PS1}${my_NEWLINE}$ ";;
+        esac
+        ;;
+esac
+
+#-------After all is said and done-------#
+my_pathadd PATH ~/bin ~/scripts ~/.bin
+
+#-------Domain specific RC-------#
+[ -r "${HOME}/.shrc_${my_DOMAIN}" ]  && .  "${HOME}/.shrc_${my_DOMAIN}"
+#-------HOST specific RC-------#
+[ -r "${HOME}/.shrc_${my_HOST}" ]  && .  "${HOME}/.shrc_${my_HOST}"
+#-------LOCAL RC (always run if present)-------#
+[ -r "${HOME}/.shrc_local" ]  && .  "${HOME}/.shrc_local"
+
+#PATH=$PATH:$HOME/.rvm/bin # Add RVM to PATH for scripting

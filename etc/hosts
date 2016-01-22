@@ -1,0 +1,14 @@
+127.0.0.1       localhost
+127.0.1.1       debian-wheezy.vagrantup.com     debian-wheezy
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+192.168.127.10 master
+192.168.127.11 minion00
+192.168.127.12 minion01
+192.168.127.13 minion02
+192.168.127.14 minion03
+192.168.127.15 minion04

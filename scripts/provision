@@ -1,0 +1,77 @@
+#!/bin/sh
+    
+put_hosts_file(){
+    cp /vagrant/etc/hosts /etc/
+}
+
+install_base_packages(){
+    packages="
+                tmux
+                zsh
+                git
+                vim
+                libncurses-dev
+                runit
+                python
+                python-pip
+                python-virtualenv
+                python-crypto
+                fossil
+                "
+    package_list=""
+    for package in ${packages} ; do
+        package_list="${package} ${package_list}"
+    done
+    apt-get install -y ${package_list}
+}
+
+add_salt(){
+    #I hate pipes from web-pulls
+    wget -O - https://repo.saltstack.com/apt/debian/8/amd64/latest/SALTSTACK-GPG-KEY.pub|\
+        sudo apt-key add -
+    echo "deb http://repo.saltstack.com/apt/debian/8/amd64/latest jessie main" >>\
+        /etc/apt/sources.list
+    apt-get update -y 
+    [ "$(hostname)" = "master" ] && apt-get install -y salt-master
+    apt-get install -y salt-minion salt-ssh
+}
+
+add_users(){
+    useradd -m -G sudo -s /usr/bin/zsh conman
+    echo 'conman ALL = (ALL) NOPASSWD: ALL' >> /etc/sudoers
+    cp -Rp /vagrant/etc/service/conman /etc/service 
+    chmod 755 /etc/service/conman/run
+    echo "conman:conman" | chpasswd 
+    sudo -u conman /vagrant/scripts/make_home
+}
+
+copy_salt_configs(){
+    cp /vagrant/etc/salt/minion /etc/salt/
+    [ "$(hostname)" = "master" ] && cp /vagrant/etc/salt/master /etc/salt/
+    [ "$(hostname)" = "master" ] && cp /vagrant/etc/salt/roster /etc/salt/
+    echo "id:$(hostname)" >> /etc/salt/minion
+}
+
+start_salt(){
+    [ "$(hostname)" = "master" ] && service salt-master start
+    service salt-minion start
+}
+
+setup_ssh(){
+    mkdir /root/.ssh/ || true
+    [ "$(hostname)" = "master" ] && cp /vagrant/etc/id_rsa /root/.ssh/ 
+    cp /vagrant/etc/authorized_keys /root/.ssh/
+    chmod -R 600 /root/.ssh/
+}
+
+main(){
+    put_hosts_file
+    install_base_packages
+    add_salt
+    add_users
+    copy_salt_configs
+    start_salt
+    setup_ssh
+}
+
+main

@@ -1,0 +1,7 @@
+#!/bin/sh
+mkdir -p ${HOME}/tmp
+mkdir -p ${HOME}/pkg
+cp -Rp /vagrant/pkgsrc ${HOME}/pkg/src
+cd ${HOME}/pkg/src/bootstrap
+export SH=/usr/bin/zsh
+./bootstrap --unprivileged --workdir ${HOME}/tmp/pkgsrc

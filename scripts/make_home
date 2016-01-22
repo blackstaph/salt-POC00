@@ -1,0 +1,15 @@
+#!/bin/sh
+cp /vagrant/scritps/shrc ~/.shrc
+rm ~/.profile || true
+rm ~/.bash_profile || true
+rm ~/.bash_logout || true
+rm ~/.bashrc || true
+for i in .zshrc .profile .kshrc .mkshrc .bash_profile .bashrc; do 
+  ln -s ${HOME}/.shrc ${HOME}/${i}
+done
+
+#virtualenv ${HOME}/python
+#. ${HOME}/python/bin/activate
+#pip install --upgrade pip
+#pip install wempy
+#pip install salt
